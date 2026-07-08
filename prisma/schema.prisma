@@ -1,0 +1,698 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// EXISTING ENUMS (match database exactly)
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  CEO
+  CFO
+  SALES_MANAGER
+  SALES_EXECUTIVE
+  MARKETING_MANAGER
+  MARKETING_EXECUTIVE
+  SUPPORT
+  HR
+}
+
+enum LeadStatus {
+  NEW_LEAD
+  CONTACTED
+  IN_DISCUSSION
+  MEETING_SCHEDULED
+  DEMO_SCHEDULED
+  DEMO_COMPLETED
+  PROPOSAL_SENT
+  NEGOTIATION
+  WAITING_APPROVAL
+  CONFIRMED
+  LOST
+  FUTURE_OPPORTUNITY
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum FollowupType {
+  CALL
+  MEETING
+  DEMO
+  EMAIL
+  WHATSAPP
+  VISIT
+}
+
+enum FollowupStatus {
+  PENDING
+  DONE
+  CANCELLED
+}
+
+enum ActivityType {
+  NOTE
+  STATUS_CHANGE
+  FOLLOWUP
+  TASK
+  FILE_UPLOAD
+  EMAIL_SENT
+  CALL
+  MEETING
+}
+
+// ─────────────────────────────────────────────
+// NEW ENUMS for Finance
+// ─────────────────────────────────────────────
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIAL
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  NEFT
+  RTGS
+  CHEQUE
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  OVERDUE
+  REFUNDED
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ExpenseCategory {
+  TRAVEL
+  SALARY
+  MARKETING
+  HOSTING
+  OFFICE_RENT
+  ELECTRICITY
+  EQUIPMENT
+  FOOD
+  MISC
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  APPROVED
+  DELIVERED
+  CANCELLED
+}
+
+enum GSTType {
+  CGST_SGST
+  IGST
+  EXEMPT
+}
+
+enum DocumentType {
+  INVOICE
+  BILL
+  CONTRACT
+  SALARY_SLIP
+  GST_FILE
+  PURCHASE_ORDER
+  OTHER
+}
+
+// ─────────────────────────────────────────────
+// EXISTING TABLES (mapped exactly to DB)
+// ─────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  name           String
+  email          String    @unique
+  password       String
+  role           Role      @default(SALES_EXECUTIVE)
+  avatar         String?
+  phone          String?
+  isActive       Boolean   @default(true)
+  refreshToken   String?
+  resetToken     String?
+  resetTokenExp  DateTime?
+  lastLogin      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // existing relations
+  leads          Lead[]    @relation("AssignedLeads")
+  createdLeads   Lead[]    @relation("CreatedLeads")
+  tasks          Task[]    @relation("AssignedTasks")
+  createdTasks   Task[]    @relation("CreatedTasks")
+  followups      Followup[]
+  activities     Activity[]
+  notifications  Notification[]
+  files          File[]
+
+  // finance relations (new)
+  expenses       Expense[]
+  payrolls       Payroll[]
+  documents      FinanceDocument[]
+
+  @@map("users")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  website   String?
+  industry  String?
+  size      String?
+  address   String?
+  city      String?
+  state     String?
+  country   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leads    Lead[]
+  contacts Contact[]
+
+  @@map("companies")
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  firstName   String
+  lastName    String?
+  email       String?
+  mobile      String?
+  whatsapp    String?
+  designation String?
+  department  String?
+  isPrimary   Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  leadId      String?
+  lead        Lead?    @relation(fields: [leadId], references: [id])
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+
+  // Finance relations
+  quotations Quotation[]
+  invoices   Invoice[]
+
+  @@map("contacts")
+}
+
+model Lead {
+  id                String     @id @default(cuid())
+  leadNumber        String     @unique
+  organization      String?
+  contactPerson     String?
+  designation       String?
+  mobile            String?
+  whatsapp          String?
+  email             String?
+  website           String?
+  address           String?
+  city              String?
+  state             String?
+  country           String?
+  industry          String?
+  source            String?
+  interestedService String?
+  status            LeadStatus @default(NEW_LEAD)
+  priority          Priority   @default(MEDIUM)
+  expectedValue     Float?
+  probability       Int?
+  expectedCloseDate DateTime?
+  proposalSent      Boolean    @default(false)
+  demoDone          Boolean    @default(false)
+  decisionMaker     Boolean    @default(false)
+  lastContact       DateTime?
+  nextFollowup      DateTime?
+  remarks           String?
+  tags              String[]
+  isActive          Boolean    @default(true)
+  assignedToId      String
+  assignedTo        User       @relation("AssignedLeads", fields: [assignedToId], references: [id])
+  createdById       String
+  createdBy         User       @relation("CreatedLeads", fields: [createdById], references: [id])
+  companyId         String?
+  company           Company?   @relation(fields: [companyId], references: [id])
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  contacts   Contact[]
+  tasks      Task[]
+  followups  Followup[]
+  activities Activity[]
+  files      File[]
+
+  @@map("leads")
+}
+
+model Task {
+  id           String     @id @default(cuid())
+  title        String
+  description  String?
+  status       TaskStatus @default(TODO)
+  priority     Priority   @default(MEDIUM)
+  dueDate      DateTime?
+  completedAt  DateTime?
+  reminder     DateTime?
+  leadId       String?
+  lead         Lead?      @relation(fields: [leadId], references: [id])
+  assignedToId String
+  assignedTo   User       @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  createdById  String
+  createdBy    User       @relation("CreatedTasks", fields: [createdById], references: [id])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  comments TaskComment[]
+
+  @@map("tasks")
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id])
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+
+  @@map("task_comments")
+}
+
+model Followup {
+  id          String         @id @default(cuid())
+  type        FollowupType
+  status      FollowupStatus @default(PENDING)
+  scheduledAt DateTime
+  completedAt DateTime?
+  notes       String?
+  outcome     String?
+  leadId      String?
+  lead        Lead?          @relation(fields: [leadId], references: [id])
+  createdById String
+  createdBy   User           @relation(fields: [createdById], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("followups")
+}
+
+model Activity {
+  id         String       @id @default(cuid())
+  type       ActivityType
+  description String
+  metadata   Json?
+  leadId     String?
+  lead       Lead?        @relation(fields: [leadId], references: [id])
+  contactId  String?
+  taskId     String?
+  followupId String?
+  userId     String
+  user       User         @relation(fields: [userId], references: [id])
+  createdAt  DateTime     @default(now())
+
+  @@map("activities")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  link      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model File {
+  id           String   @id @default(cuid())
+  originalName String
+  storedName   String
+  mimeType     String?
+  size         Int?
+  url          String
+  leadId       String?
+  lead         Lead?    @relation(fields: [leadId], references: [id])
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@map("files")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  module      String?
+  action      String?
+  createdAt   DateTime @default(now())
+
+  userPermissions UserPermission[]
+
+  @@map("permissions")
+}
+
+model UserPermission {
+  id           String     @id @default(cuid())
+  userId       String
+  permissionId String
+  granted      Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([userId, permissionId])
+  @@map("user_permissions")
+}
+
+// ─────────────────────────────────────────────
+// FINANCE TABLES (NEW — added by Phase 3)
+// ─────────────────────────────────────────────
+
+model FinanceSettings {
+  id                  String  @id @default(uuid())
+  companyName         String
+  companyAddress      String?
+  companyPhone        String?
+  companyEmail        String?
+  companyWebsite      String?
+  companyLogo         String?
+  gstin               String?
+  pan                 String?
+  currency            String  @default("INR")
+  currencySymbol      String  @default("₹")
+  financialYearStart  String  @default("04")
+  invoicePrefix       String  @default("INV")
+  quotationPrefix     String  @default("QT")
+  purchaseOrderPrefix String  @default("PO")
+  defaultTaxRate      Float   @default(18)
+  gstType             GSTType @default(CGST_SGST)
+  cgstRate            Float   @default(9)
+  sgstRate            Float   @default(9)
+  igstRate            Float   @default(18)
+  bankAccounts        Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("finance_settings")
+}
+
+model Quotation {
+  id                 String          @id @default(uuid())
+  quotationNumber    String          @unique
+  title              String
+  contactId          String
+  contact            Contact         @relation(fields: [contactId], references: [id])
+  issueDate          DateTime        @default(now())
+  expiryDate         DateTime
+  status             QuotationStatus @default(DRAFT)
+  subtotal           Float
+  discountType       String?
+  discountValue      Float           @default(0)
+  discountAmount     Float           @default(0)
+  taxableAmount      Float
+  gstType            GSTType         @default(CGST_SGST)
+  cgstAmount         Float           @default(0)
+  sgstAmount         Float           @default(0)
+  igstAmount         Float           @default(0)
+  taxAmount          Float           @default(0)
+  grandTotal         Float
+  notes              String?
+  terms              String?
+  convertedToInvoice Boolean         @default(false)
+  invoiceId          String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  items QuotationItem[]
+
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id          String    @id @default(uuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  unitPrice   Float
+  discountPct Float     @default(0)
+  taxRate     Float     @default(0)
+  amount      Float
+  createdAt   DateTime  @default(now())
+
+  @@map("quotation_items")
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique
+  title          String?
+  contactId      String
+  contact        Contact       @relation(fields: [contactId], references: [id])
+  quotationId    String?
+  issueDate      DateTime      @default(now())
+  dueDate        DateTime
+  status         InvoiceStatus @default(DRAFT)
+  subtotal       Float
+  discountType   String?
+  discountValue  Float         @default(0)
+  discountAmount Float         @default(0)
+  taxableAmount  Float
+  gstType        GSTType       @default(CGST_SGST)
+  cgstAmount     Float         @default(0)
+  sgstAmount     Float         @default(0)
+  igstAmount     Float         @default(0)
+  taxAmount      Float         @default(0)
+  grandTotal     Float
+  amountPaid     Float         @default(0)
+  balanceDue     Float
+  notes          String?
+  terms          String?
+  qrCode         String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  unitPrice   Float
+  discountPct Float    @default(0)
+  taxRate     Float    @default(0)
+  amount      Float
+  createdAt   DateTime @default(now())
+
+  @@map("invoice_items")
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  paymentNumber String        @unique
+  invoiceId     String
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id])
+  amount        Float
+  paymentDate   DateTime      @default(now())
+  paymentMode   PaymentMode   @default(CASH)
+  status        PaymentStatus @default(PAID)
+  reference     String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@map("payments")
+}
+
+model Expense {
+  id            String          @id @default(uuid())
+  title         String
+  description   String?
+  amount        Float
+  category      ExpenseCategory @default(MISC)
+  expenseDate   DateTime        @default(now())
+  status        ExpenseStatus   @default(PENDING)
+  billUrl       String?
+  submittedById String
+  submittedBy   User            @relation(fields: [submittedById], references: [id])
+  approvedById  String?
+  approvedAt    DateTime?
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@map("expenses")
+}
+
+model Payroll {
+  id              String    @id @default(uuid())
+  employeeId      String
+  employee        User      @relation(fields: [employeeId], references: [id])
+  month           Int
+  year            Int
+  basicSalary     Float
+  hra             Float     @default(0)
+  allowances      Float     @default(0)
+  commission      Float     @default(0)
+  bonus           Float     @default(0)
+  grossSalary     Float
+  pf              Float     @default(0)
+  esi             Float     @default(0)
+  tds             Float     @default(0)
+  otherDeductions Float     @default(0)
+  totalDeductions Float
+  netSalary       Float
+  isPaid          Boolean   @default(false)
+  paidAt          DateTime?
+  slipUrl         String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([employeeId, month, year])
+  @@map("payrolls")
+}
+
+model Vendor {
+  id          String   @id @default(uuid())
+  name        String
+  email       String?
+  phone       String?
+  company     String?
+  address     String?
+  city        String?
+  state       String?
+  country     String?
+  pincode     String?
+  gstin       String?
+  pan         String?
+  bankName    String?
+  bankAccount String?
+  bankIfsc    String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+
+  @@map("vendors")
+}
+
+model PurchaseOrder {
+  id               String              @id @default(uuid())
+  poNumber         String              @unique
+  vendorId         String
+  vendor           Vendor              @relation(fields: [vendorId], references: [id])
+  issueDate        DateTime            @default(now())
+  expectedDelivery DateTime?
+  status           PurchaseOrderStatus @default(DRAFT)
+  subtotal         Float
+  taxAmount        Float               @default(0)
+  grandTotal       Float
+  notes            String?
+  invoiceAttachment String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  items PurchaseOrderItem[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  description     String
+  quantity        Float
+  unitPrice       Float
+  taxRate         Float         @default(0)
+  amount          Float
+  createdAt       DateTime      @default(now())
+
+  @@map("purchase_order_items")
+}
+
+model FinanceDocument {
+  id           String       @id @default(uuid())
+  title        String
+  type         DocumentType @default(OTHER)
+  fileUrl      String
+  fileSize     Int?
+  mimeType     String?
+  description  String?
+  uploadedById String
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("finance_documents")
+}
+
+model FinanceCounter {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  prefix    String
+  current   Int      @default(0)
+  year      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("finance_counters")
+}
