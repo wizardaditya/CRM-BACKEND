@@ -52,6 +52,7 @@ const leadRepository = {
       companyId,
       createdById,
       assignedToId,
+      _count,
       ...scalars
     } = data;
 
