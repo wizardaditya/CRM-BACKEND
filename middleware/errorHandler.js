@@ -1,66 +1,40 @@
 const logger = require('../utils/logger');
 
+/**
+ * Global error handler — must be registered LAST in Express
+ */
 const errorHandler = (err, req, res, next) => {
-  logger.error({
-    message: err.message,
-    stack: err.stack,
-    url: req.url,
-    method: req.method,
-    ip: req.ip,
-  });
-
-  // Prisma errors
-  if (err.code === 'P2002') {
-    return res.status(409).json({
-      success: false,
-      message: 'Duplicate entry. Record already exists.',
-      field: err.meta?.target,
-    });
-  }
-
-  if (err.code === 'P2025') {
-    return res.status(404).json({
-      success: false,
-      message: 'Record not found.',
-    });
-  }
-
-  // Validation errors
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: err.message,
-    });
-  }
-
-  // JWT errors
-  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid or expired token',
-    });
-  }
+  logger.error(`${err.message} — ${req.method} ${req.originalUrl}`, { stack: err.stack });
 
   // Multer errors
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(400).json({
+    return res.status(413).json({ success: false, message: 'File too large' });
+  }
+
+  // Prisma known request errors
+  if (err.code === 'P2002') {
+    return res.status(409).json({
       success: false,
-      message: 'File size too large. Maximum 10MB allowed.',
+      message: `Duplicate value for field: ${err.meta?.target?.join(', ')}`,
     });
+  }
+  if (err.code === 'P2025') {
+    return res.status(404).json({ success: false, message: 'Record not found' });
   }
 
   const statusCode = err.statusCode || 500;
-  return res.status(statusCode).json({
+  res.status(statusCode).json({
     success: false,
-    message: err.message || 'Internal Server Error',
+    message: err.message || 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 };
 
-const notFound = (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route ${req.method} ${req.originalUrl} not found`,
-  });
+/**
+ * 404 handler for unmatched routes
+ */
+const notFoundHandler = (req, res) => {
+  res.status(404).json({ success: false, message: `Route not found: ${req.originalUrl}` });
 };
 
-module.exports = { errorHandler, notFound };
+module.exports = { errorHandler, notFoundHandler };

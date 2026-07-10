@@ -1,11 +1,10 @@
 const express = require('express');
 const router = express.Router();
 
-const { authenticate } = require('../../middleware/auth');
-const { cfoAccess } = require('../../middleware/auth');
+const { protect, authorize } = require('../../middleware/auth');
 
-// All CFO routes require authentication + CFO/ADMIN role
-router.use(authenticate, cfoAccess);
+// All CFO routes require authentication + CFO/ADMIN/CEO role
+router.use(protect, authorize('CFO', 'ADMIN', 'CEO'));
 
 router.use('/dashboard', require('./dashboardRoutes'));
 router.use('/quotations', require('./quotationRoutes'));

@@ -1,168 +1,67 @@
-const { prisma } = require('../../config/database');
-const { generateNumber } = require('../../utils/counterHelper');
-const { successResponse, errorResponse, paginatedResponse, getPagination, getPaginationMeta } = require('../../utils/apiResponse');
+const prisma = require("../../config/db");
+const { generateNumber } = require("../../utils/counterHelper");
+const { success, error, paginated } = require("../../utils/apiResponse");
 
-// GET /api/cfo/purchase-orders
-const getPurchaseOrders = async (req, res) => {
+exports.getPurchaseOrders = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req.query.page, req.query.limit);
-    const { search, status, vendorId } = req.query;
-
-    const where = {};
-    if (status) where.status = status;
-    if (vendorId) where.vendorId = vendorId;
-    if (search) {
-      where.OR = [
-        { poNumber: { contains: search, mode: 'insensitive' } },
-        { vendor: { name: { contains: search, mode: 'insensitive' } } },
-      ];
-    }
-
-    const [data, total] = await Promise.all([
-      prisma.purchaseOrder.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          vendor: { select: { id: true, name: true, company: true, email: true } },
-          items: true,
-        },
-      }),
-      prisma.purchaseOrder.count({ where }),
+    const page=parseInt(req.query.page)||1, limit=parseInt(req.query.limit)||20, skip=(page-1)*limit;
+    const where={};
+    if(req.query.status) where.status=req.query.status;
+    if(req.query.vendorId) where.vendorId=req.query.vendorId;
+    if(req.query.search) where.OR=[{poNumber:{contains:req.query.search,mode:"insensitive"}},{vendor:{name:{contains:req.query.search,mode:"insensitive"}}}];
+    const [data,total]=await Promise.all([
+      prisma.purchaseOrder.findMany({where,skip,take:limit,orderBy:{createdAt:"desc"},include:{vendor:{select:{id:true,name:true,company:true,email:true}},items:true}}),
+      prisma.purchaseOrder.count({where}),
     ]);
-
-    return paginatedResponse(res, data, getPaginationMeta(total, page, limit));
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    return paginated(res,data,{total,page,limit,totalPages:Math.ceil(total/limit)});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/purchase-orders/:id
-const getPurchaseOrder = async (req, res) => {
+exports.getPurchaseOrder = async (req, res) => {
   try {
-    const po = await prisma.purchaseOrder.findUnique({
-      where: { id: req.params.id },
-      include: { vendor: true, items: true },
-    });
-    if (!po) return errorResponse(res, 'Purchase order not found', 404);
-    return successResponse(res, po);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const po=await prisma.purchaseOrder.findUnique({where:{id:req.params.id},include:{vendor:true,items:true}});
+    if(!po) return error(res,"Not found",404);
+    return success(res,po);
+  } catch(e){return error(res,e.message);}
 };
 
-// POST /api/cfo/purchase-orders
-const createPurchaseOrder = async (req, res) => {
+exports.createPurchaseOrder = async (req, res) => {
   try {
-    const { vendorId, expectedDelivery, items, notes } = req.body;
-
-    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
-    if (!vendor) return errorResponse(res, 'Vendor not found', 404);
-
-    const settings = await prisma.financeSettings.findFirst();
-    const prefix = settings?.purchaseOrderPrefix || 'PO';
-    const poNumber = await generateNumber('purchase_order', prefix);
-
-    const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-    const taxAmount = items.reduce((sum, item) => {
-      const lineTotal = item.quantity * item.unitPrice;
-      return sum + (lineTotal * (item.taxRate || 0)) / 100;
-    }, 0);
-    const grandTotal = subtotal + taxAmount;
-
-    const invoiceAttachment = req.file ? `/uploads/${req.file.filename}` : null;
-
-    const po = await prisma.purchaseOrder.create({
-      data: {
-        poNumber,
-        vendorId,
-        expectedDelivery: expectedDelivery ? new Date(expectedDelivery) : null,
-        status: 'DRAFT',
-        subtotal,
-        taxAmount,
-        grandTotal,
-        notes,
-        invoiceAttachment,
-        items: {
-          create: items.map((item) => ({
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            taxRate: item.taxRate || 0,
-            amount: item.quantity * item.unitPrice,
-          })),
-        },
-      },
-      include: { vendor: true, items: true },
-    });
-
-    return successResponse(res, po, 'Purchase order created', 201);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const {vendorId,expectedDelivery,items,notes}=req.body;
+    const parsedItems=typeof items==="string"?JSON.parse(items):items;
+    const vnd=await prisma.vendor.findUnique({where:{id:vendorId}});
+    if(!vnd) return error(res,"Vendor not found",404);
+    const s=await prisma.financeSettings.findFirst();
+    const sub=parsedItems.reduce((a,i)=>a+(+i.quantity||0)*(+i.unitPrice||0),0);
+    const tax=parsedItems.reduce((a,i)=>a+((+i.quantity||0)*(+i.unitPrice||0)*(+i.taxRate||0)/100),0);
+    const ia=req.file?"/uploads/"+req.file.filename:null;
+    const po=await prisma.purchaseOrder.create({data:{poNumber:await generateNumber("purchase_order",s?.purchaseOrderPrefix||"PO"),vendorId,expectedDelivery:expectedDelivery?new Date(expectedDelivery):null,status:"DRAFT",subtotal:sub,taxAmount:tax,grandTotal:sub+tax,notes,invoiceAttachment:ia,items:{create:parsedItems.map(i=>({description:i.description,quantity:+i.quantity,unitPrice:+i.unitPrice,taxRate:+i.taxRate||0,amount:(+i.quantity||0)*(+i.unitPrice||0)}))}},include:{vendor:true,items:true}});
+    return success(res,po,"Purchase order created",201);
+  } catch(e){return error(res,e.message);}
 };
 
-// PUT /api/cfo/purchase-orders/:id
-const updatePurchaseOrder = async (req, res) => {
+exports.updatePurchaseOrder = async (req, res) => {
   try {
-    const { id } = req.params;
-    const existing = await prisma.purchaseOrder.findUnique({ where: { id } });
-    if (!existing) return errorResponse(res, 'Purchase order not found', 404);
-    if (['DELIVERED', 'CANCELLED'].includes(existing.status)) {
-      return errorResponse(res, 'Cannot edit delivered/cancelled purchase order', 400);
-    }
-
-    const { vendorId, expectedDelivery, items, notes, status } = req.body;
-    const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-    const taxAmount = items.reduce((sum, item) => {
-      return sum + (item.quantity * item.unitPrice * (item.taxRate || 0)) / 100;
-    }, 0);
-    const grandTotal = subtotal + taxAmount;
-    const invoiceAttachment = req.file ? `/uploads/${req.file.filename}` : existing.invoiceAttachment;
-
-    await prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
-
-    const po = await prisma.purchaseOrder.update({
-      where: { id },
-      data: {
-        vendorId,
-        expectedDelivery: expectedDelivery ? new Date(expectedDelivery) : null,
-        status,
-        subtotal,
-        taxAmount,
-        grandTotal,
-        notes,
-        invoiceAttachment,
-        items: {
-          create: items.map((item) => ({
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            taxRate: item.taxRate || 0,
-            amount: item.quantity * item.unitPrice,
-          })),
-        },
-      },
-      include: { vendor: true, items: true },
-    });
-
-    return successResponse(res, po, 'Purchase order updated');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const {id}=req.params;
+    const ex=await prisma.purchaseOrder.findUnique({where:{id}});
+    if(!ex) return error(res,"Not found",404);
+    if(["DELIVERED","CANCELLED"].includes(ex.status)) return error(res,"Cannot edit delivered/cancelled PO",400);
+    const {vendorId,expectedDelivery,items,notes,status}=req.body;
+    const parsedItems=typeof items==="string"?JSON.parse(items):items;
+    const sub=parsedItems.reduce((a,i)=>a+(+i.quantity||0)*(+i.unitPrice||0),0);
+    const tax=parsedItems.reduce((a,i)=>a+((+i.quantity||0)*(+i.unitPrice||0)*(+i.taxRate||0)/100),0);
+    const ia=req.file?"/uploads/"+req.file.filename:ex.invoiceAttachment;
+    await prisma.purchaseOrderItem.deleteMany({where:{purchaseOrderId:id}});
+    const po=await prisma.purchaseOrder.update({where:{id},data:{vendorId,expectedDelivery:expectedDelivery?new Date(expectedDelivery):null,status,subtotal:sub,taxAmount:tax,grandTotal:sub+tax,notes,invoiceAttachment:ia,items:{create:parsedItems.map(i=>({description:i.description,quantity:+i.quantity,unitPrice:+i.unitPrice,taxRate:+i.taxRate||0,amount:(+i.quantity||0)*(+i.unitPrice||0)}))}},include:{vendor:true,items:true}});
+    return success(res,po,"Updated");
+  } catch(e){return error(res,e.message);}
 };
 
-// DELETE /api/cfo/purchase-orders/:id
-const deletePurchaseOrder = async (req, res) => {
+exports.deletePurchaseOrder = async (req, res) => {
   try {
-    const existing = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
-    if (!existing) return errorResponse(res, 'Purchase order not found', 404);
-    await prisma.purchaseOrder.delete({ where: { id: req.params.id } });
-    return successResponse(res, null, 'Purchase order deleted');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const ex=await prisma.purchaseOrder.findUnique({where:{id:req.params.id}});
+    if(!ex) return error(res,"Not found",404);
+    await prisma.purchaseOrder.delete({where:{id:req.params.id}});
+    return success(res,null,"Deleted");
+  } catch(e){return error(res,e.message);}
 };
-
-module.exports = { getPurchaseOrders, getPurchaseOrder, createPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder };

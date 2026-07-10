@@ -1,103 +1,45 @@
-const { prisma } = require('../../config/database');
-const { successResponse, errorResponse, paginatedResponse, getPagination, getPaginationMeta } = require('../../utils/apiResponse');
-const fs = require('fs');
-const path = require('path');
+const prisma = require("../../config/db");
+const { success, error, paginated } = require("../../utils/apiResponse");
+const fs = require("fs"), path = require("path");
 
-// GET /api/cfo/documents
-const getDocuments = async (req, res) => {
+exports.getDocuments = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req.query.page, req.query.limit);
-    const { search, type } = req.query;
-
-    const where = {};
-    if (type) where.type = type;
-    if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ];
-    }
-
-    const [data, total] = await Promise.all([
-      prisma.financeDocument.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          uploadedBy: { select: { id: true, name: true, email: true } },
-        },
-      }),
-      prisma.financeDocument.count({ where }),
+    const page=parseInt(req.query.page)||1, limit=parseInt(req.query.limit)||20, skip=(page-1)*limit;
+    const where={};
+    if(req.query.type) where.type=req.query.type;
+    if(req.query.search) where.OR=[{title:{contains:req.query.search,mode:"insensitive"}}];
+    const [data,total]=await Promise.all([
+      prisma.financeDocument.findMany({where,skip,take:limit,orderBy:{createdAt:"desc"},include:{uploadedBy:{select:{id:true,name:true,email:true}}}}),
+      prisma.financeDocument.count({where}),
     ]);
-
-    return paginatedResponse(res, data, getPaginationMeta(total, page, limit));
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    return paginated(res,data,{total,page,limit,totalPages:Math.ceil(total/limit)});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/documents/:id
-const getDocument = async (req, res) => {
+exports.getDocument = async (req, res) => {
   try {
-    const doc = await prisma.financeDocument.findUnique({
-      where: { id: req.params.id },
-      include: {
-        uploadedBy: { select: { id: true, name: true, email: true } },
-      },
-    });
-    if (!doc) return errorResponse(res, 'Document not found', 404);
-    return successResponse(res, doc);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const d=await prisma.financeDocument.findUnique({where:{id:req.params.id},include:{uploadedBy:{select:{id:true,name:true,email:true}}}});
+    if(!d) return error(res,"Not found",404);
+    return success(res,d);
+  } catch(e){return error(res,e.message);}
 };
 
-// POST /api/cfo/documents
-const uploadDocument = async (req, res) => {
+exports.uploadDocument = async (req, res) => {
   try {
-    if (!req.file) return errorResponse(res, 'No file uploaded', 400);
-
-    const { title, type, description } = req.body;
-
-    const doc = await prisma.financeDocument.create({
-      data: {
-        title: title || req.file.originalname,
-        type: type || 'OTHER',
-        fileUrl: `/uploads/${req.file.filename}`,
-        fileSize: req.file.size,
-        mimeType: req.file.mimetype,
-        description,
-        uploadedById: req.user.id,
-      },
-      include: {
-        uploadedBy: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    return successResponse(res, doc, 'Document uploaded', 201);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    if(!req.file) return error(res,"No file uploaded",400);
+    const {title,type,description}=req.body;
+    const d=await prisma.financeDocument.create({data:{title:title||req.file.originalname,type:type||"OTHER",fileUrl:"/uploads/"+req.file.filename,fileSize:req.file.size,mimeType:req.file.mimetype,description,uploadedById:req.user.id},include:{uploadedBy:{select:{id:true,name:true,email:true}}}});
+    return success(res,d,"Document uploaded",201);
+  } catch(e){return error(res,e.message);}
 };
 
-// DELETE /api/cfo/documents/:id
-const deleteDocument = async (req, res) => {
+exports.deleteDocument = async (req, res) => {
   try {
-    const doc = await prisma.financeDocument.findUnique({ where: { id: req.params.id } });
-    if (!doc) return errorResponse(res, 'Document not found', 404);
-
-    // Delete physical file
-    const filePath = path.join(__dirname, '../../', doc.fileUrl);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-
-    await prisma.financeDocument.delete({ where: { id: req.params.id } });
-    return successResponse(res, null, 'Document deleted');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const d=await prisma.financeDocument.findUnique({where:{id:req.params.id}});
+    if(!d) return error(res,"Not found",404);
+    const fp=path.join(__dirname,"../../",d.fileUrl);
+    if(fs.existsSync(fp)) fs.unlinkSync(fp);
+    await prisma.financeDocument.delete({where:{id:req.params.id}});
+    return success(res,null,"Deleted");
+  } catch(e){return error(res,e.message);}
 };
-
-module.exports = { getDocuments, getDocument, uploadDocument, deleteDocument };

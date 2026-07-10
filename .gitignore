@@ -1,0 +1,29 @@
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.production
+.env.staging
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Uploads (user files — not source code)
+uploads/*
+!uploads/.gitkeep
+
+# Build output
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Prisma generated client
+node_modules/.prisma/

@@ -1,203 +1,75 @@
-const { prisma } = require('../../config/database');
-const { successResponse, errorResponse } = require('../../utils/apiResponse');
+const prisma = require("../../config/db");
+const { success, error } = require("../../utils/apiResponse");
+const parseRange=(from,to)=>({gte:from?new Date(from):new Date(new Date().getFullYear(),0,1),lte:to?new Date(to):new Date()});
 
-const parseRange = (from, to) => ({
-  gte: from ? new Date(from) : new Date(new Date().getFullYear(), 0, 1),
-  lte: to ? new Date(to) : new Date(),
-});
-
-// GET /api/cfo/reports/revenue
-const getRevenueReport = async (req, res) => {
+exports.getRevenueReport = async (req, res) => {
   try {
-    const { from, to, groupBy = 'month' } = req.query;
-    const range = parseRange(from, to);
-
-    const payments = await prisma.payment.findMany({
-      where: { status: 'PAID', paymentDate: range },
-      include: {
-        invoice: {
-          include: { contact: { select: { id: true, firstName: true, lastName: true, email: true } } },
-        },
-      },
-      orderBy: { paymentDate: 'asc' },
-    });
-
-    const total = payments.reduce((sum, p) => sum + p.amount, 0);
-    return successResponse(res, { payments, total });
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const range=parseRange(req.query.from,req.query.to);
+    const payments=await prisma.payment.findMany({where:{status:"PAID",paymentDate:range},include:{invoice:{include:{contact:{select:{id:true,firstName:true,lastName:true}}}}},orderBy:{paymentDate:"asc"}});
+    const total=payments.reduce((s,p)=>s+p.amount,0);
+    return success(res,{payments,total});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/reports/expenses
-const getExpenseReport = async (req, res) => {
+exports.getExpenseReport = async (req, res) => {
   try {
-    const { from, to } = req.query;
-    const range = parseRange(from, to);
-
-    const expenses = await prisma.expense.findMany({
-      where: { status: 'APPROVED', expenseDate: range },
-      include: {
-        submittedBy: { select: { name: true } },
-      },
-      orderBy: { expenseDate: 'asc' },
-    });
-
-    const total = expenses.reduce((sum, e) => sum + e.amount, 0);
-
-    // Group by category
-    const byCategory = expenses.reduce((acc, e) => {
-      acc[e.category] = (acc[e.category] || 0) + e.amount;
-      return acc;
-    }, {});
-
-    return successResponse(res, { expenses, total, byCategory });
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const range=parseRange(req.query.from,req.query.to);
+    const expenses=await prisma.expense.findMany({where:{status:"APPROVED",expenseDate:range},include:{submittedBy:{select:{name:true}}},orderBy:{expenseDate:"asc"}});
+    const total=expenses.reduce((s,e)=>s+e.amount,0);
+    const byCategory=expenses.reduce((a,e)=>{a[e.category]=(a[e.category]||0)+e.amount;return a},{});
+    return success(res,{expenses,total,byCategory});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/reports/profit-loss
-const getProfitLoss = async (req, res) => {
+exports.getProfitLoss = async (req, res) => {
   try {
-    const { from, to } = req.query;
-    const range = parseRange(from, to);
-
-    const [revenueData, expenseData] = await Promise.all([
-      prisma.payment.aggregate({
-        _sum: { amount: true },
-        where: { status: 'PAID', paymentDate: range },
-      }),
-      prisma.expense.aggregate({
-        _sum: { amount: true },
-        where: { status: 'APPROVED', expenseDate: range },
-      }),
+    const range=parseRange(req.query.from,req.query.to);
+    const [rev,exp]=await Promise.all([
+      prisma.payment.aggregate({_sum:{amount:true},where:{status:"PAID",paymentDate:range}}),
+      prisma.expense.aggregate({_sum:{amount:true},where:{status:"APPROVED",expenseDate:range}}),
     ]);
-
-    const revenue = revenueData._sum.amount || 0;
-    const expenses = expenseData._sum.amount || 0;
-    const profit = revenue - expenses;
-    const profitMargin = revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : 0;
-
-    return successResponse(res, { revenue, expenses, profit, profitMargin });
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const revenue=rev._sum.amount||0, expenses=exp._sum.amount||0, profit=revenue-expenses;
+    return success(res,{revenue,expenses,profit,profitMargin:revenue>0?((profit/revenue)*100).toFixed(2):0});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/reports/cash-flow
-const getCashFlow = async (req, res) => {
+exports.getCashFlow = async (req, res) => {
   try {
-    const { from, to } = req.query;
-    const range = parseRange(from, to);
-
-    const [inflow, outflow] = await Promise.all([
-      prisma.payment.findMany({
-        where: { status: 'PAID', paymentDate: range },
-        select: { amount: true, paymentDate: true },
-        orderBy: { paymentDate: 'asc' },
-      }),
-      prisma.expense.findMany({
-        where: { status: 'APPROVED', expenseDate: range },
-        select: { amount: true, expenseDate: true },
-        orderBy: { expenseDate: 'asc' },
-      }),
+    const range=parseRange(req.query.from,req.query.to);
+    const [inflow,outflow]=await Promise.all([
+      prisma.payment.findMany({where:{status:"PAID",paymentDate:range},select:{amount:true,paymentDate:true}}),
+      prisma.expense.findMany({where:{status:"APPROVED",expenseDate:range},select:{amount:true,expenseDate:true}}),
     ]);
-
-    const totalInflow = inflow.reduce((sum, p) => sum + p.amount, 0);
-    const totalOutflow = outflow.reduce((sum, e) => sum + e.amount, 0);
-    const netCashFlow = totalInflow - totalOutflow;
-
-    return successResponse(res, { inflow, outflow, totalInflow, totalOutflow, netCashFlow });
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const totalIn=inflow.reduce((s,p)=>s+p.amount,0), totalOut=outflow.reduce((s,e)=>s+e.amount,0);
+    return success(res,{inflow,outflow,totalInflow:totalIn,totalOutflow:totalOut,netCashFlow:totalIn-totalOut});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/reports/outstanding
-const getOutstandingReport = async (req, res) => {
+exports.getOutstandingReport = async (req, res) => {
   try {
-    const invoices = await prisma.invoice.findMany({
-      where: { status: { in: ['SENT', 'PARTIAL', 'OVERDUE'] } },
-      include: {
-        contact: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
-      orderBy: { dueDate: 'asc' },
-    });
-
-    const total = invoices.reduce((sum, i) => sum + i.balanceDue, 0);
-    const overdue = invoices.filter((i) => new Date(i.dueDate) < new Date());
-    const overdueTotal = overdue.reduce((sum, i) => sum + i.balanceDue, 0);
-
-    return successResponse(res, { invoices, total, overdueCount: overdue.length, overdueTotal });
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const invoices=await prisma.invoice.findMany({where:{status:{in:["SENT","PARTIAL","OVERDUE"]}},include:{contact:{select:{id:true,firstName:true,lastName:true,email:true}}},orderBy:{dueDate:"asc"}});
+    const total=invoices.reduce((s,i)=>s+i.balanceDue,0);
+    const overdue=invoices.filter(i=>new Date(i.dueDate)<new Date());
+    return success(res,{invoices,total,overdueCount:overdue.length,overdueTotal:overdue.reduce((s,i)=>s+i.balanceDue,0)});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/reports/payroll
-const getPayrollReport = async (req, res) => {
+exports.getPayrollReport = async (req, res) => {
   try {
-    const { month, year } = req.query;
-    const where = {};
-    if (month) where.month = parseInt(month);
-    if (year) where.year = parseInt(year);
-
-    const payrolls = await prisma.payroll.findMany({
-      where,
-      include: {
-        employee: { select: { name: true, email: true, role: true } },
-      },
-      orderBy: [{ year: 'desc' }, { month: 'desc' }],
-    });
-
-    const totalGross = payrolls.reduce((sum, p) => sum + p.grossSalary, 0);
-    const totalNet = payrolls.reduce((sum, p) => sum + p.netSalary, 0);
-    const totalDeductions = payrolls.reduce((sum, p) => sum + p.totalDeductions, 0);
-
-    return successResponse(res, { payrolls, totalGross, totalNet, totalDeductions });
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const where={};
+    if(req.query.month) where.month=parseInt(req.query.month);
+    if(req.query.year) where.year=parseInt(req.query.year);
+    const payrolls=await prisma.payroll.findMany({where,include:{employee:{select:{name:true,email:true,role:true}}},orderBy:[{year:"desc"},{month:"desc"}]});
+    return success(res,{payrolls,totalGross:payrolls.reduce((s,p)=>s+p.grossSalary,0),totalNet:payrolls.reduce((s,p)=>s+p.netSalary,0),totalDeductions:payrolls.reduce((s,p)=>s+p.totalDeductions,0)});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/reports/invoices
-const getInvoiceReport = async (req, res) => {
+exports.getInvoiceReport = async (req, res) => {
   try {
-    const { from, to, status } = req.query;
-    const range = parseRange(from, to);
-
-    const where = { issueDate: range };
-    if (status) where.status = status;
-
-    const invoices = await prisma.invoice.findMany({
-      where,
-      include: {
-        contact: { select: { id: true, firstName: true, lastName: true, email: true } },
-        payments: true,
-      },
-      orderBy: { issueDate: 'asc' },
-    });
-
-    const totals = {
-      count: invoices.length,
-      grandTotal: invoices.reduce((sum, i) => sum + i.grandTotal, 0),
-      amountPaid: invoices.reduce((sum, i) => sum + i.amountPaid, 0),
-      balanceDue: invoices.reduce((sum, i) => sum + i.balanceDue, 0),
-    };
-
-    return successResponse(res, { invoices, totals });
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
-};
-
-module.exports = {
-  getRevenueReport,
-  getExpenseReport,
-  getProfitLoss,
-  getCashFlow,
-  getOutstandingReport,
-  getPayrollReport,
-  getInvoiceReport,
+    const range=parseRange(req.query.from,req.query.to);
+    const where={issueDate:range};
+    if(req.query.status) where.status=req.query.status;
+    const invoices=await prisma.invoice.findMany({where,include:{contact:{select:{id:true,firstName:true,lastName:true}},payments:true},orderBy:{issueDate:"asc"}});
+    return success(res,{invoices,totals:{count:invoices.length,grandTotal:invoices.reduce((s,i)=>s+i.grandTotal,0),amountPaid:invoices.reduce((s,i)=>s+i.amountPaid,0),balanceDue:invoices.reduce((s,i)=>s+i.balanceDue,0)}});
+  } catch(e){return error(res,e.message);}
 };

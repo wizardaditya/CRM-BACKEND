@@ -1,56 +1,33 @@
 /**
- * Standardized API response helpers
+ * Standardised API response helpers
+ * Every controller uses these — never manually construct response shapes.
  */
 
-const successResponse = (res, data = null, message = 'Success', statusCode = 200) => {
-  return res.status(statusCode).json({
-    success: true,
-    message,
-    data,
-  });
-};
+const success = (res, data = null, message = 'Success', statusCode = 200) =>
+  res.status(statusCode).json({ success: true, message, data });
 
-const errorResponse = (res, message = 'Internal Server Error', statusCode = 500, errors = null) => {
-  const response = {
-    success: false,
-    message,
-  };
-  if (errors) response.errors = errors;
-  return res.status(statusCode).json(response);
-};
+const created = (res, data = null, message = 'Created') =>
+  success(res, data, message, 201);
 
-const paginatedResponse = (res, data, pagination, message = 'Success') => {
-  return res.status(200).json({
-    success: true,
-    message,
-    data,
-    pagination,
-  });
-};
+const error = (res, message = 'Server error', statusCode = 500, errors = null) =>
+  res.status(statusCode).json({ success: false, message, ...(errors && { errors }) });
 
-const getPagination = (page = 1, limit = 10) => {
-  const pageNum = Math.max(1, parseInt(page));
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
-  const skip = (pageNum - 1) * limitNum;
-  return { page: pageNum, limit: limitNum, skip };
-};
+const notFound = (res, message = 'Resource not found') =>
+  error(res, message, 404);
 
-const getPaginationMeta = (total, page, limit) => {
-  const totalPages = Math.ceil(total / limit);
-  return {
-    total,
-    page,
-    limit,
-    totalPages,
-    hasNextPage: page < totalPages,
-    hasPrevPage: page > 1,
-  };
-};
+const unauthorized = (res, message = 'Unauthorized') =>
+  error(res, message, 401);
+
+const forbidden = (res, message = 'Forbidden') =>
+  error(res, message, 403);
+
+const validationError = (res, errors) =>
+  error(res, 'Validation failed', 422, errors);
+
+const paginated = (res, data, meta, message = 'Success') =>
+  res.status(200).json({ success: true, message, data, meta });
 
 module.exports = {
-  successResponse,
-  errorResponse,
-  paginatedResponse,
-  getPagination,
-  getPaginationMeta,
+  success, created, error, notFound,
+  unauthorized, forbidden, validationError, paginated,
 };

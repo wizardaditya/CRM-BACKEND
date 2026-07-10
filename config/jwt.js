@@ -1,28 +1,37 @@
 const jwt = require('jsonwebtoken');
 
-const generateAccessToken = (payload) => {
-  return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  });
-};
+const JWT_SECRET          = process.env.JWT_SECRET;
+const JWT_EXPIRES_IN      = process.env.JWT_EXPIRES_IN          || '15m';
+const JWT_REFRESH_SECRET  = process.env.JWT_REFRESH_SECRET;
+const JWT_REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES_IN  || '7d';
 
-const generateRefreshToken = (payload) => {
-  return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
-  });
-};
+/**
+ * Sign a short-lived access token
+ */
+const signAccessToken = (payload) =>
+  jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
-const verifyAccessToken = (token) => {
-  return jwt.verify(token, process.env.JWT_SECRET);
-};
+/**
+ * Sign a long-lived refresh token
+ */
+const signRefreshToken = (payload) =>
+  jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRES });
 
-const verifyRefreshToken = (token) => {
-  return jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-};
+/**
+ * Verify access token — throws on invalid/expired
+ */
+const verifyAccessToken = (token) =>
+  jwt.verify(token, JWT_SECRET);
+
+/**
+ * Verify refresh token — throws on invalid/expired
+ */
+const verifyRefreshToken = (token) =>
+  jwt.verify(token, JWT_REFRESH_SECRET);
 
 module.exports = {
-  generateAccessToken,
-  generateRefreshToken,
+  signAccessToken,
+  signRefreshToken,
   verifyAccessToken,
   verifyRefreshToken,
 };

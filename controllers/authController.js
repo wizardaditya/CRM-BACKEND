@@ -1,142 +1,85 @@
-const bcrypt = require('bcryptjs');
-const { prisma } = require('../config/database');
-const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../config/jwt');
-const { successResponse, errorResponse } = require('../utils/apiResponse');
+const bcrypt      = require('bcryptjs');
+const prisma      = require('../config/db');
+const authService = require('../services/authService');
+const R           = require('../utils/apiResponse');
 
-// POST /api/auth/register
-const register = async (req, res) => {
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure:   process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
+};
+
+exports.register = async (req, res, next) => {
   try {
-    const { name, email, password, role, phone } = req.body;
+    const user = await authService.register(req.body);
+    R.created(res, user, 'User registered successfully');
+  } catch (err) { next(err); }
+};
 
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) {
-      return errorResponse(res, 'Email already registered', 409);
-    }
+exports.login = async (req, res, next) => {
+  try {
+    const { accessToken, refreshToken, user } = await authService.login(req.body);
+    res.cookie('refreshToken', refreshToken, COOKIE_OPTS);
+    R.success(res, { accessToken, user }, 'Login successful');
+  } catch (err) { next(err); }
+};
 
-    const rounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
-    const hashedPassword = await bcrypt.hash(password, rounds);
+exports.refresh = async (req, res, next) => {
+  try {
+    const token = req.cookies?.refreshToken || req.body?.refreshToken;
+    const { accessToken, refreshToken } = await authService.refreshToken(token);
+    res.cookie('refreshToken', refreshToken, COOKIE_OPTS);
+    R.success(res, { accessToken }, 'Token refreshed');
+  } catch (err) { next(err); }
+};
 
-    const user = await prisma.user.create({
-      data: { name, email, password: hashedPassword, role: role || 'SALES', phone },
-      select: { id: true, name: true, email: true, role: true, phone: true, createdAt: true },
+exports.logout = async (req, res, next) => {
+  try {
+    await authService.logout(req.user.id);
+    res.clearCookie('refreshToken');
+    R.success(res, null, 'Logged out successfully');
+  } catch (err) { next(err); }
+};
+
+exports.me = async (req, res) => {
+  const { password, refreshToken, resetToken, ...user } = req.user;
+  R.success(res, user, 'User profile');
+};
+
+exports.forgotPassword = async (req, res, next) => {
+  try {
+    await authService.forgotPassword(req.body.email);
+    R.success(res, null, 'If the email exists, a reset link has been sent');
+  } catch (err) { next(err); }
+};
+
+exports.resetPassword = async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+    const user = await prisma.user.findFirst({
+      where: { resetToken: token, resetTokenExp: { gt: new Date() } },
     });
+    if (!user) return R.error(res, 'Invalid or expired reset token', 400);
 
-    const accessToken = generateAccessToken({ id: user.id, role: user.role });
-    const refreshToken = generateRefreshToken({ id: user.id });
-
+    const hashed = await bcrypt.hash(password, 12);
     await prisma.user.update({
       where: { id: user.id },
-      data: { refreshToken },
+      data:  { password: hashed, resetToken: null, resetTokenExp: null },
     });
-
-    return successResponse(res, { user, accessToken, refreshToken }, 'Registration successful', 201);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    R.success(res, null, 'Password reset successfully');
+  } catch (err) { next(err); }
 };
 
-// POST /api/auth/login
-const login = async (req, res) => {
+exports.changePassword = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { currentPassword, newPassword } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) return R.error(res, 'Current password is incorrect', 400);
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true, name: true, email: true, role: true, phone: true,
-        avatar: true, isActive: true, password: true,
-      },
-    });
-
-    if (!user) {
-      return errorResponse(res, 'Invalid credentials', 401);
-    }
-
-    if (!user.isActive) {
-      return errorResponse(res, 'Account is deactivated. Contact admin.', 403);
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return errorResponse(res, 'Invalid credentials', 401);
-    }
-
-    const accessToken = generateAccessToken({ id: user.id, role: user.role });
-    const refreshToken = generateRefreshToken({ id: user.id });
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken },
-    });
-
-    const { password: _, ...userWithoutPassword } = user;
-    return successResponse(res, { user: userWithoutPassword, accessToken, refreshToken }, 'Login successful');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({ where: { id: req.user.id }, data: { password: hashed } });
+    R.success(res, null, 'Password changed successfully');
+  } catch (err) { next(err); }
 };
-
-// POST /api/auth/refresh
-const refreshToken = async (req, res) => {
-  try {
-    const { refreshToken: token } = req.body;
-    if (!token) return errorResponse(res, 'Refresh token required', 401);
-
-    const decoded = verifyRefreshToken(token);
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: { id: true, role: true, refreshToken: true, isActive: true },
-    });
-
-    if (!user || user.refreshToken !== token) {
-      return errorResponse(res, 'Invalid refresh token', 401);
-    }
-
-    if (!user.isActive) {
-      return errorResponse(res, 'Account is deactivated', 403);
-    }
-
-    const accessToken = generateAccessToken({ id: user.id, role: user.role });
-    const newRefreshToken = generateRefreshToken({ id: user.id });
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken: newRefreshToken },
-    });
-
-    return successResponse(res, { accessToken, refreshToken: newRefreshToken }, 'Token refreshed');
-  } catch (error) {
-    return errorResponse(res, 'Invalid or expired refresh token', 401);
-  }
-};
-
-// POST /api/auth/logout
-const logout = async (req, res) => {
-  try {
-    await prisma.user.update({
-      where: { id: req.user.id },
-      data: { refreshToken: null },
-    });
-    return successResponse(res, null, 'Logged out successfully');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
-};
-
-// GET /api/auth/me
-const getMe = async (req, res) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true, name: true, email: true, role: true,
-        phone: true, avatar: true, isActive: true, createdAt: true,
-      },
-    });
-    return successResponse(res, user, 'User profile fetched');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
-};
-
-module.exports = { register, login, refreshToken, logout, getMe };

@@ -1,41 +1,34 @@
-const express = require('express');
-const { body } = require('express-validator');
-const router = express.Router();
-const { register, login, refreshToken, logout, getMe } = require('../controllers/authController');
-const { authenticate } = require('../middleware/auth');
+const router = require('express').Router();
+const ctrl   = require('../controllers/authController');
+const { protect, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
+const { body } = require('express-validator');
 
-// POST /api/auth/register
-router.post(
-  '/register',
-  [
-    body('name').trim().notEmpty().withMessage('Name is required'),
-    body('email').isEmail().withMessage('Valid email required'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    body('role').optional().isIn(['ADMIN', 'CFO', 'MANAGER', 'SALES', 'SUPPORT', 'EMPLOYEE']),
-  ],
-  validate,
-  register
-);
+const loginRules = [
+  body('email').isEmail().normalizeEmail(),
+  body('password').notEmpty(),
+];
 
-// POST /api/auth/login
-router.post(
-  '/login',
-  [
-    body('email').isEmail().withMessage('Valid email required'),
-    body('password').notEmpty().withMessage('Password is required'),
-  ],
-  validate,
-  login
-);
+const registerRules = [
+  body('name').trim().notEmpty(),
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 8 }),
+  body('role').optional().isIn(['ADMIN','CEO','CFO','SALES_MANAGER','SALES_EXECUTIVE','MARKETING_MANAGER','MARKETING_EXECUTIVE','SUPPORT','HR']),
+];
 
-// POST /api/auth/refresh
-router.post('/refresh', refreshToken);
-
-// POST /api/auth/logout
-router.post('/logout', authenticate, logout);
-
-// GET /api/auth/me
-router.get('/me', authenticate, getMe);
+router.post('/register', protect, authorize('ADMIN'), registerRules, validate, ctrl.register);
+router.post('/login',    loginRules, validate, ctrl.login);
+router.post('/refresh',  ctrl.refresh);
+router.post('/logout',   protect, ctrl.logout);
+router.get( '/me',       protect, ctrl.me);
+router.post('/forgot-password', [body('email').isEmail()], validate, ctrl.forgotPassword);
+router.post('/reset-password',  [
+  body('token').notEmpty(),
+  body('password').isLength({ min: 8 }),
+], validate, ctrl.resetPassword);
+router.post('/change-password', protect, [
+  body('currentPassword').notEmpty(),
+  body('newPassword').isLength({ min: 8 }),
+], validate, ctrl.changePassword);
 
 module.exports = router;

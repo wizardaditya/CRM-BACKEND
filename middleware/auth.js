@@ -1,76 +1,69 @@
 const { verifyAccessToken } = require('../config/jwt');
-const { prisma } = require('../config/database');
-const { errorResponse } = require('../utils/apiResponse');
+const { unauthorized, forbidden } = require('../utils/apiResponse');
+const prisma = require('../config/db');
 
 /**
- * Verify JWT token and attach user to request
+ * Protect routes — verifies JWT from Authorization header or httpOnly cookie
  */
-const authenticate = async (req, res, next) => {
+const protect = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return errorResponse(res, 'Access token required', 401);
+    let token;
+
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
     }
 
-    const token = authHeader.split(' ')[1];
+    if (!token) return unauthorized(res, 'No token provided');
+
     const decoded = verifyAccessToken(token);
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
       select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isActive: true,
-        avatar: true,
+        id: true, name: true, email: true,
+        role: true, isActive: true, avatar: true,
+        permissions: {
+          include: { permission: true },
+        },
       },
     });
 
-    if (!user) {
-      return errorResponse(res, 'User not found', 401);
-    }
-
-    if (!user.isActive) {
-      return errorResponse(res, 'Account is deactivated', 403);
-    }
+    if (!user)          return unauthorized(res, 'User not found');
+    if (!user.isActive) return forbidden(res, 'Account is deactivated');
 
     req.user = user;
     next();
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return errorResponse(res, 'Token expired', 401);
-    }
-    if (error.name === 'JsonWebTokenError') {
-      return errorResponse(res, 'Invalid token', 401);
-    }
-    return errorResponse(res, 'Authentication failed', 401);
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') return unauthorized(res, 'Token expired');
+    return unauthorized(res, 'Invalid token');
   }
 };
 
 /**
- * Authorize specific roles
- * Usage: authorize('ADMIN', 'CFO')
+ * Role-based access guard
+ * Usage: authorize('ADMIN', 'SALES_MANAGER')
  */
-const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return errorResponse(res, 'Not authenticated', 401);
-    }
-    if (!roles.includes(req.user.role)) {
-      return errorResponse(
-        res,
-        `Access denied. Required roles: ${roles.join(', ')}`,
-        403
-      );
-    }
-    next();
-  };
+const authorize = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.user?.role)) {
+    return forbidden(res, 'You do not have permission to perform this action');
+  }
+  next();
 };
 
 /**
- * CFO or Admin access only
+ * Dynamic permission guard
+ * Usage: requirePermission('leads:create')
  */
-const cfoAccess = authorize('CFO', 'ADMIN', 'CEO');
+const requirePermission = (permissionName) => (req, res, next) => {
+  const hasPermission = req.user?.permissions?.some(
+    (up) => up.permission.name === permissionName && up.granted
+  );
+  if (!hasPermission) {
+    return forbidden(res, `Permission denied: ${permissionName}`);
+  }
+  next();
+};
 
-module.exports = { authenticate, authorize, cfoAccess };
+module.exports = { protect, authorize, requirePermission };

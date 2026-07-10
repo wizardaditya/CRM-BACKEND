@@ -1,180 +1,77 @@
-const { prisma } = require('../../config/database');
-const { successResponse, errorResponse, paginatedResponse, getPagination, getPaginationMeta } = require('../../utils/apiResponse');
+const prisma = require("../../config/db");
+const { success, error, paginated } = require("../../utils/apiResponse");
 
-// GET /api/cfo/payroll
-const getPayrolls = async (req, res) => {
+exports.getPayrolls = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req.query.page, req.query.limit);
-    const { month, year, isPaid, employeeId } = req.query;
-
-    const where = {};
-    if (month) where.month = parseInt(month);
-    if (year) where.year = parseInt(year);
-    if (isPaid !== undefined) where.isPaid = isPaid === 'true';
-    if (employeeId) where.employeeId = employeeId;
-
-    const [data, total] = await Promise.all([
-      prisma.payroll.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: [{ year: 'desc' }, { month: 'desc' }],
-        include: {
-          employee: { select: { id: true, name: true, email: true, avatar: true, role: true } },
-        },
-      }),
-      prisma.payroll.count({ where }),
+    const page=parseInt(req.query.page)||1, limit=parseInt(req.query.limit)||50, skip=(page-1)*limit;
+    const where={};
+    if(req.query.month) where.month=parseInt(req.query.month);
+    if(req.query.year) where.year=parseInt(req.query.year);
+    if(req.query.isPaid!==undefined) where.isPaid=req.query.isPaid==="true";
+    if(req.query.employeeId) where.employeeId=req.query.employeeId;
+    const [data,total]=await Promise.all([
+      prisma.payroll.findMany({where,skip,take:limit,orderBy:[{year:"desc"},{month:"desc"}],include:{employee:{select:{id:true,name:true,email:true,avatar:true,role:true}}}}),
+      prisma.payroll.count({where}),
     ]);
-
-    return paginatedResponse(res, data, getPaginationMeta(total, page, limit));
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    return paginated(res,data,{total,page,limit,totalPages:Math.ceil(total/limit)});
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/payroll/:id
-const getPayroll = async (req, res) => {
+exports.getPayroll = async (req, res) => {
   try {
-    const payroll = await prisma.payroll.findUnique({
-      where: { id: req.params.id },
-      include: {
-        employee: { select: { id: true, name: true, email: true, role: true, phone: true } },
-      },
-    });
-    if (!payroll) return errorResponse(res, 'Payroll record not found', 404);
-    return successResponse(res, payroll);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const p=await prisma.payroll.findUnique({where:{id:req.params.id},include:{employee:{select:{id:true,name:true,email:true,role:true,phone:true}}}});
+    if(!p) return error(res,"Not found",404);
+    return success(res,p);
+  } catch(e){return error(res,e.message);}
 };
 
-// POST /api/cfo/payroll
-const createPayroll = async (req, res) => {
+exports.createPayroll = async (req, res) => {
   try {
-    const {
-      employeeId, month, year,
-      basicSalary, hra = 0, allowances = 0, commission = 0, bonus = 0,
-      pf = 0, esi = 0, tds = 0, otherDeductions = 0,
-      notes,
-    } = req.body;
-
-    // Verify employee exists
-    const employee = await prisma.user.findUnique({ where: { id: employeeId } });
-    if (!employee) return errorResponse(res, 'Employee not found', 404);
-
-    // Check for duplicate
-    const existing = await prisma.payroll.findUnique({
-      where: { employeeId_month_year: { employeeId, month: parseInt(month), year: parseInt(year) } },
-    });
-    if (existing) return errorResponse(res, 'Payroll already exists for this month', 409);
-
-    const grossSalary = basicSalary + hra + allowances + commission + bonus;
-    const totalDeductions = pf + esi + tds + otherDeductions;
-    const netSalary = grossSalary - totalDeductions;
-
-    const payroll = await prisma.payroll.create({
-      data: {
-        employeeId,
-        month: parseInt(month),
-        year: parseInt(year),
-        basicSalary,
-        hra,
-        allowances,
-        commission,
-        bonus,
-        grossSalary,
-        pf,
-        esi,
-        tds,
-        otherDeductions,
-        totalDeductions,
-        netSalary,
-        notes,
-      },
-      include: {
-        employee: { select: { id: true, name: true, email: true, role: true } },
-      },
-    });
-
-    return successResponse(res, payroll, 'Payroll created', 201);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const {employeeId,month,year,basicSalary,hra=0,allowances=0,commission=0,bonus=0,pf=0,esi=0,tds=0,otherDeductions=0,notes}=req.body;
+    const emp=await prisma.user.findUnique({where:{id:employeeId}});
+    if(!emp) return error(res,"Employee not found",404);
+    const existing=await prisma.payroll.findUnique({where:{employeeId_month_year:{employeeId,month:parseInt(month),year:parseInt(year)}}});
+    if(existing) return error(res,"Payroll already exists for this month",409);
+    const gross=+basicSalary+(+hra)+(+allowances)+(+commission)+(+bonus);
+    const deduct=(+pf)+(+esi)+(+tds)+(+otherDeductions);
+    const p=await prisma.payroll.create({data:{employeeId,month:parseInt(month),year:parseInt(year),basicSalary:+basicSalary,hra:+hra,allowances:+allowances,commission:+commission,bonus:+bonus,grossSalary:gross,pf:+pf,esi:+esi,tds:+tds,otherDeductions:+otherDeductions,totalDeductions:deduct,netSalary:gross-deduct,notes},include:{employee:{select:{id:true,name:true,email:true,role:true}}}});
+    return success(res,p,"Payroll created",201);
+  } catch(e){return error(res,e.message);}
 };
 
-// PUT /api/cfo/payroll/:id
-const updatePayroll = async (req, res) => {
+exports.updatePayroll = async (req, res) => {
   try {
-    const { id } = req.params;
-    const existing = await prisma.payroll.findUnique({ where: { id } });
-    if (!existing) return errorResponse(res, 'Payroll record not found', 404);
-    if (existing.isPaid) return errorResponse(res, 'Cannot edit a paid payroll', 400);
-
-    const {
-      basicSalary, hra = 0, allowances = 0, commission = 0, bonus = 0,
-      pf = 0, esi = 0, tds = 0, otherDeductions = 0, notes,
-    } = req.body;
-
-    const grossSalary = basicSalary + hra + allowances + commission + bonus;
-    const totalDeductions = pf + esi + tds + otherDeductions;
-    const netSalary = grossSalary - totalDeductions;
-
-    const payroll = await prisma.payroll.update({
-      where: { id },
-      data: {
-        basicSalary, hra, allowances, commission, bonus,
-        grossSalary, pf, esi, tds, otherDeductions,
-        totalDeductions, netSalary, notes,
-      },
-      include: {
-        employee: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    return successResponse(res, payroll, 'Payroll updated');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const ex=await prisma.payroll.findUnique({where:{id:req.params.id}});
+    if(!ex) return error(res,"Not found",404);
+    if(ex.isPaid) return error(res,"Cannot edit paid payroll",400);
+    const {basicSalary,hra=0,allowances=0,commission=0,bonus=0,pf=0,esi=0,tds=0,otherDeductions=0,notes}=req.body;
+    const gross=+basicSalary+(+hra)+(+allowances)+(+commission)+(+bonus);
+    const deduct=(+pf)+(+esi)+(+tds)+(+otherDeductions);
+    const p=await prisma.payroll.update({where:{id:req.params.id},data:{basicSalary:+basicSalary,hra:+hra,allowances:+allowances,commission:+commission,bonus:+bonus,grossSalary:gross,pf:+pf,esi:+esi,tds:+tds,otherDeductions:+otherDeductions,totalDeductions:deduct,netSalary:gross-deduct,notes},include:{employee:{select:{id:true,name:true,email:true}}}});
+    return success(res,p,"Updated");
+  } catch(e){return error(res,e.message);}
 };
 
-// PATCH /api/cfo/payroll/:id/mark-paid
-const markPaid = async (req, res) => {
+exports.markPaid = async (req, res) => {
   try {
-    const payroll = await prisma.payroll.update({
-      where: { id: req.params.id },
-      data: { isPaid: true, paidAt: new Date() },
-    });
-    return successResponse(res, payroll, 'Payroll marked as paid');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const p=await prisma.payroll.update({where:{id:req.params.id},data:{isPaid:true,paidAt:new Date()}});
+    return success(res,p,"Marked as paid");
+  } catch(e){return error(res,e.message);}
 };
 
-// DELETE /api/cfo/payroll/:id
-const deletePayroll = async (req, res) => {
+exports.deletePayroll = async (req, res) => {
   try {
-    const existing = await prisma.payroll.findUnique({ where: { id: req.params.id } });
-    if (!existing) return errorResponse(res, 'Payroll not found', 404);
-    if (existing.isPaid) return errorResponse(res, 'Cannot delete a paid payroll', 400);
-    await prisma.payroll.delete({ where: { id: req.params.id } });
-    return successResponse(res, null, 'Payroll deleted');
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const ex=await prisma.payroll.findUnique({where:{id:req.params.id}});
+    if(!ex) return error(res,"Not found",404);
+    if(ex.isPaid) return error(res,"Cannot delete paid payroll",400);
+    await prisma.payroll.delete({where:{id:req.params.id}});
+    return success(res,null,"Deleted");
+  } catch(e){return error(res,e.message);}
 };
 
-// GET /api/cfo/payroll/employees - list all employees for dropdown
-const getEmployees = async (req, res) => {
+exports.getEmployees = async (req, res) => {
   try {
-    const employees = await prisma.user.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true, email: true, role: true, avatar: true },
-      orderBy: { name: 'asc' },
-    });
-    return successResponse(res, employees);
-  } catch (error) {
-    return errorResponse(res, error.message);
-  }
+    const employees=await prisma.user.findMany({where:{isActive:true},select:{id:true,name:true,email:true,role:true,avatar:true},orderBy:{name:"asc"}});
+    return success(res,employees);
+  } catch(e){return error(res,e.message);}
 };
-
-module.exports = { getPayrolls, getPayroll, createPayroll, updatePayroll, markPaid, deletePayroll, getEmployees };

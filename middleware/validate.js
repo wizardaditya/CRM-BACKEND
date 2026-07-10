@@ -1,10 +1,14 @@
 const { validationResult } = require('express-validator');
-const { errorResponse } = require('../utils/apiResponse');
+const { validationError }   = require('../utils/apiResponse');
 
+/**
+ * Run after express-validator chains.
+ * Returns a 422 with all field errors if validation fails.
+ */
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return errorResponse(res, 'Validation failed', 400, errors.array());
+    return validationError(res, errors.array());
   }
   next();
 };
