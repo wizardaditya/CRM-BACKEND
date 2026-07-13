@@ -25,8 +25,7 @@ const authService = {
    */
   login: async ({ email, password }) => {
     const user = await userRepository.findByEmail(email);
-    if (!user) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
-    if (!user.isActive) throw Object.assign(new Error('Account deactivated'), { statusCode: 403 });
+    if (!user || !user.isActive) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
@@ -35,6 +34,7 @@ const authService = {
     const accessToken  = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
 
+    // Update refresh token and last login in single query
     await userRepository.update(user.id, {
       refreshToken,
       lastLogin: new Date(),

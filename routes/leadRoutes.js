@@ -5,9 +5,11 @@ const validate = require('../middleware/validate');
 const { body } = require('express-validator');
 
 const createRules = [
-  body('organization').trim().notEmpty().withMessage('Organization is required'),
-  body('contactPerson').trim().notEmpty().withMessage('Contact person is required'),
-  body('mobile').trim().notEmpty().withMessage('Mobile is required'),
+  // All fields are optional now - minimal required validation
+  body('organization').optional().trim(),
+  body('contactPerson').optional().trim(),
+  body('mobile').optional().trim(),
+  body('email').optional().isEmail().withMessage('Invalid email format'),
 ];
 
 router.use(protect);
