@@ -51,12 +51,21 @@ const authService = {
     if (!token) throw Object.assign(new Error('Refresh token required'), { statusCode: 401 });
 
     let decoded;
-    try { decoded = verifyRefreshToken(token); }
-    catch { throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 }); }
+    try { 
+      decoded = verifyRefreshToken(token); 
+    } catch (err) { 
+      console.log('JWT verification failed:', err.message);
+      throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 }); 
+    }
 
     const user = await userRepository.findById(decoded.id);
-    if (!user || user.refreshToken !== token) {
-      throw Object.assign(new Error('Refresh token reuse detected'), { statusCode: 401 });
+    if (!user) {
+      throw Object.assign(new Error('User not found'), { statusCode: 401 });
+    }
+    
+    if (!user.refreshToken || user.refreshToken !== token) {
+      console.log('Refresh token mismatch or missing for user:', decoded.id);
+      throw Object.assign(new Error('Refresh token expired or invalid'), { statusCode: 401 });
     }
 
     const payload      = { id: user.id, email: user.email, role: user.role };
