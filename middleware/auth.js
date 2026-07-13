@@ -24,9 +24,6 @@ const protect = async (req, res, next) => {
       select: {
         id: true, name: true, email: true,
         role: true, isActive: true, avatar: true,
-        permissions: {
-          include: { permission: true },
-        },
       },
     });
 
@@ -53,16 +50,33 @@ const authorize = (...roles) => (req, res, next) => {
 };
 
 /**
- * Dynamic permission guard
+ * Dynamic permission guard - simplified to role-based access for now
  * Usage: requirePermission('leads:create')
  */
 const requirePermission = (permissionName) => (req, res, next) => {
-  const hasPermission = req.user?.permissions?.some(
-    (up) => up.permission.name === permissionName && up.granted
-  );
-  if (!hasPermission) {
+  // For now, allow ADMIN and CEO full access, others based on basic role permissions
+  const { role } = req.user || {};
+  
+  if (role === 'ADMIN' || role === 'CEO') {
+    return next();
+  }
+  
+  // Basic role-based permissions
+  const allowedRoles = {
+    'leads:create': ['SALES_MANAGER', 'SALES_EXECUTIVE'],
+    'leads:read': ['SALES_MANAGER', 'SALES_EXECUTIVE', 'MARKETING_MANAGER'],
+    'leads:update': ['SALES_MANAGER', 'SALES_EXECUTIVE'],
+    'leads:delete': ['SALES_MANAGER'],
+    'tasks:create': ['SALES_MANAGER', 'SALES_EXECUTIVE'],
+    'tasks:update': ['SALES_MANAGER', 'SALES_EXECUTIVE'],
+  };
+  
+  const allowed = allowedRoles[permissionName] || [];
+  
+  if (!allowed.includes(role)) {
     return forbidden(res, `Permission denied: ${permissionName}`);
   }
+  
   next();
 };
 

@@ -7,7 +7,6 @@ const userRepository = {
   findById: (id) =>
     prisma.user.findUnique({
       where: { id },
-      include: { permissions: { include: { permission: true } } },
     }),
 
   create: (data) => prisma.user.create({ data }),
