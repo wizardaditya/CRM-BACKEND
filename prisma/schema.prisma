@@ -9,7 +9,6 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────────
@@ -228,6 +227,7 @@ model Lead {
   industry           String?
   source             String?
   interestedService  String?
+  boards             String?      // Educational boards like CBSE, ICSE, MP Board etc
   status             LeadStatus   @default(NEW_LEAD)
   priority           Priority     @default(MEDIUM)
   expectedValue      Float?       @default(0)
